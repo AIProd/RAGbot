@@ -13,7 +13,7 @@ PDF_DIR = ""
 EMBED_MODEL = "text-embedding-3-large"
 
 # 1. Load & split
-docs, splitter = [], RecursiveCharacterTextSplitter(3200, 800)
+docs, splitter = [], RecursiveCharacterTextSplitter(chunk_size=3200, chunk_overlap=800)
 for path in glob.glob(os.path.join(PDF_DIR, "**/*.pdf"), recursive=True):
     docs.extend(PyPDFLoader(path).load_and_split())
 splits = splitter.split_documents(docs)
