@@ -9,7 +9,7 @@ from langchain.vectorstores     import FAISS
 AZURE_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
 AZURE_API_KEY  = os.environ["AZURE_OPENAI_API_KEY"]
 
-PDF_DIR = "docs"
+PDF_DIR = ""
 EMBED_MODEL = "text-embedding-3-large"
 
 # 1. Load & split
