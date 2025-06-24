@@ -151,7 +151,7 @@ if "rag_chain" not in st.session_state and Path("faiss_index").exists():
             model=EMBED_MODEL,
             chunk_size=2048,
         )
-        db = FAISS.load_local("faiss_index", emb)
+        db = FAISS.load_local("faiss_index", emb, allow_dangerous_deserialization=True)
         retriever = db.as_retriever(search_kwargs={"k": 4})
         llm = AzureChatOpenAI(
             azure_endpoint=AZURE_ENDPOINT,
