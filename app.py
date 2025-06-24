@@ -27,7 +27,7 @@ API_VERSION = st.secrets.get("API_VERSION", os.getenv("API_VERSION", "2024-12-01
 
 # Model / deployment names on your Azure OpenAI resource ----------------------
 CHAT_DEPLOYMENT = "gpt-4o"                   # name of chat deployment
-aEMBED_MODEL   = "text-embedding-3-large"    # name of embedding deployment
+EMBED_MODEL   = "text-embedding-3-large"    # name of embedding deployment
 
 # -----------------------------------------------------------------------------
 # 2. Utility helpers
