@@ -1,143 +1,252 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  BobiHealth RAG Chat – Streamlit edition
-# ─────────────────────────────────────────────────────────────────────────────
-import os, glob, textwrap, tempfile, pickle, time
+import os
+import tempfile
+import textwrap
+from pathlib import Path
+from typing import List
+
 import streamlit as st
 from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter    import RecursiveCharacterTextSplitter
-from langchain.vectorstores     import FAISS
-from langchain.memory           import ConversationBufferMemory
-from langchain.prompts          import PromptTemplate
-from langchain.chains           import ConversationalRetrievalChain
-from langchain_openai           import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 
-# ╭──────────────────────────────────────── SET-UP ───────────────────────────╮
-st.set_page_config(page_title="BobiHealth RAG", page_icon="🩺", layout="wide")
-st.title("🩺 BobiHealth document assistant")
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Secrets / Environment configuration
+# ──────────────────────────────────────────────────────────────────────────────
+# Make sure you add AZURE_ENDPOINT, AZURE_API_KEY and (optionally) API_VERSION
+# to Streamlit ➜ Settings ➜ Secrets when deploying on Streamlit Community Cloud.
+# They will be available through st.secrets; we fall back to environment vars
+# when running locally.
+# ──────────────────────────────────────────────────────────────────────────────
+AZURE_ENDPOINT = st.secrets.get("AZURE_ENDPOINT", os.getenv("AZURE_ENDPOINT"))
+AZURE_API_KEY = st.secrets.get("AZURE_API_KEY", os.getenv("AZURE_API_KEY"))
+API_VERSION = st.secrets.get("API_VERSION", os.getenv("API_VERSION", "2024-12-01-preview"))
 
-# Read secrets (NEVER hard-code keys)
-AZURE_ENDPOINT   = st.secrets["AZURE_ENDPOINT"]
-AZURE_API_KEY    = st.secrets["AZURE_API_KEY"]
-API_VERSION      = st.secrets.get("AZURE_API_VERSION", "2024-12-01-preview")
-CHAT_DEPLOYMENT  = st.secrets.get("CHAT_DEPLOYMENT", "gpt-4o")
-EMBED_MODEL      = st.secrets.get("EMBED_MODEL"    , "text-embedding-3-large")
+# Model / deployment names on your Azure OpenAI resource ----------------------
+CHAT_DEPLOYMENT = "gpt-4o"                   # name of chat deployment
+aEMBED_MODEL   = "text-embedding-3-large"    # name of embedding deployment
 
-# Session-state helpers -------------------------------------------------------
-if "vectordb" not in st.session_state:    st.session_state.vectordb = None
-if "chat_memory" not in st.session_state: st.session_state.chat_memory = None
-if "chat_chain"  not in st.session_state: st.session_state.chat_chain  = None
+# -----------------------------------------------------------------------------
+# 2. Utility helpers
+# -----------------------------------------------------------------------------
 
-# ╭──────────────────────────── Sidebar – Index builder ──────────────────────╮
-st.sidebar.header("🗂️ Document index")
+def _write_uploaded_file(uploaded_file) -> Path:
+    """Write Streamlit UploadedFile to a temporary path and return it."""
+    suffix = Path(uploaded_file.name).suffix
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(tmp_fd, "wb") as f:
+        f.write(uploaded_file.read())
+    return Path(tmp_path)
 
-uploaded_files = st.sidebar.file_uploader(
-    "Upload PDF(s) to index", type="pdf", accept_multiple_files=True
-)
 
-if st.sidebar.button("🔄 (Re)build index", disabled=not uploaded_files):
-    with st.spinner("Embedding & indexing… this can take a minute ⏳"):
-        # 1. Save PDFs to a temp dir so PyPDFLoader can open them
-        with tempfile.TemporaryDirectory() as pdf_dir:
-            for up in uploaded_files:
-                path = os.path.join(pdf_dir, up.name)
-                with open(path, "wb") as f: f.write(up.getbuffer())
+def _build_index(pdf_files: List[Path]):
+    """Given a list of PDF file paths, build (or rebuild) the FAISS index
+    and LangChain RAG pipeline, saving index to ./faiss_index."""
 
-            # 2. Load & split
-            pdf_paths = glob.glob(os.path.join(pdf_dir, "**/*.pdf"), recursive=True)
-            docs = []
-            for p in pdf_paths:
-                docs.extend(PyPDFLoader(p).load_and_split())
+    # 2·1  Load & split -------------------------------------------------------
+    docs = []
+    for p in pdf_files:
+        docs.extend(PyPDFLoader(str(p)).load_and_split())
 
-            splitter  = RecursiveCharacterTextSplitter(chunk_size=3200, chunk_overlap=800)
-            splits    = splitter.split_documents(docs)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=3200, chunk_overlap=800)
+    splits = splitter.split_documents(docs)
 
-            # 3. Embed & build FAISS
-            embeddings = AzureOpenAIEmbeddings(
-                azure_endpoint = AZURE_ENDPOINT,
-                api_key        = AZURE_API_KEY,
-                model          = EMBED_MODEL,
-                chunk_size     = 2048,
-            )
-            st.session_state.vectordb = FAISS.from_documents(splits, embeddings)
-            st.session_state.chat_memory = ConversationBufferMemory(
-                memory_key="chat_history", input_key="question",
-                output_key="answer", return_messages=True
-            )
-            st.success(f"Indexed {len(splits):,} chunks from {len(pdf_paths)} PDFs.")
-
-            # 4. Persist index to a pickle (optional – survives code reloads)
-            with open(".faiss_store.pkl", "wb") as f:
-                pickle.dump(st.session_state.vectordb, f)
-
-    st.experimental_rerun()
-
-# Load cached index (if built previously during session / from pickle) -------
-if st.session_state.vectordb is None and os.path.exists(".faiss_store.pkl"):
-    with open(".faiss_store.pkl", "rb") as f:
-        st.session_state.vectordb = pickle.load(f)
-        st.session_state.chat_memory = ConversationBufferMemory(
-            memory_key="chat_history", input_key="question",
-            output_key="answer", return_messages=True
-        )
-
-# Abort if no index yet -------------------------------------------------------
-if st.session_state.vectordb is None:
-    st.info("↖️ Upload PDFs and click **(Re)build index** to start.")
-    st.stop()
-
-# ╭────────────────────────────── Chat chain set-up ──────────────────────────╮
-if st.session_state.chat_chain is None:
-    llm = AzureChatOpenAI(
-        azure_endpoint     = AZURE_ENDPOINT,
-        api_key            = AZURE_API_KEY,
-        openai_api_version = API_VERSION,
-        azure_deployment   = CHAT_DEPLOYMENT,
-        max_tokens         = 4096,
-        temperature        = 0,
+    # 2·2  Embed & store ------------------------------------------------------
+    embeddings = AzureOpenAIEmbeddings(
+        azure_endpoint=AZURE_ENDPOINT,
+        api_key=AZURE_API_KEY,
+        model=aEMBED_MODEL,
+        chunk_size=2048,
     )
-    prompt_template = """You are a helpful assistant for BobiHealth.
 
-Use the context below to answer the user question.
-If the answer is not in the documents, say you don't know.
-Keep responses concise (30–50 words).
+    vectordb = FAISS.from_documents(splits, embeddings)
 
-{context}
+    # Persist so we can reuse without recomputing every reload
+    vectordb.save_local("faiss_index")
 
-Chat history:
-{chat_history}
+    retriever = vectordb.as_retriever(search_kwargs={"k": 4})
 
-User question: {question}
-Helpful answer:"""
+    # 2·3  Build RAG chain ----------------------------------------------------
+    llm = AzureChatOpenAI(
+        azure_endpoint=AZURE_ENDPOINT,
+        api_key=AZURE_API_KEY,
+        openai_api_version=API_VERSION,
+        azure_deployment=CHAT_DEPLOYMENT,
+        temperature=0,
+        max_tokens=4096,
+    )
+
+    memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        input_key="question",
+        output_key="answer",
+        return_messages=True,
+    )
+
+    prompt_template = (
+        "You are a helpful assistant for BobiHealth.\n\n"
+        "Use the following context to answer the user's question.\n"
+        "If you don't know the answer, say you don't know—don't fabricate.\n"
+        "Response should not be in more than 30‑50 words.\n\n"
+        "{context}\n\n"
+        "Chat History:\n{chat_history}\n\n"
+        "User question: {question}\n"
+        "Helpful answer:"
+    )
+
     prompt = PromptTemplate(
-        input_variables=["context","chat_history","question"],
+        input_variables=["context", "chat_history", "question"],
         template=prompt_template,
     )
-    st.session_state.chat_chain = ConversationalRetrievalChain.from_llm(
-        llm                     = llm,
-        retriever               = st.session_state.vectordb.as_retriever(search_kwargs={"k":4}),
-        memory                  = st.session_state.chat_memory,
+
+    rag_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=memory,
         combine_docs_chain_kwargs={"prompt": prompt},
-        return_source_documents = True,
-        output_key              = "answer",
+        return_source_documents=True,
+        output_key="answer",
     )
 
-# ╭────────────────────────────── Chat interface ─────────────────────────────╮
-user_q = st.chat_input(placeholder="Ask about the uploaded documents…")
-if user_q:
-    with st.spinner("Thinking…"):
-        result = st.session_state.chat_chain.invoke({"question": user_q})
-        answer = result["answer"]
+    return rag_chain, vectordb
 
-    # assistant response
-    with st.chat_message("assistant"):
-        st.markdown(textwrap.fill(answer, width=100))
 
-        # show sources collapsible
-        with st.expander("📄 Sources"):
-            for doc in result["source_documents"]:
-                src  = os.path.basename(doc.metadata.get("source", "unknown"))
-                page = doc.metadata.get("page", "?")
-                snippet = doc.page_content[:180].replace("\n"," ")
-                st.markdown(f"* **{src}**, page {page}: {snippet}…")
+# -----------------------------------------------------------------------------
+# 3. Streamlit Page config
+# -----------------------------------------------------------------------------
 
-# display chat history retroactively (Streamlit v1.33+ preserves messages)
+st.set_page_config(
+    page_title="BobiHealth RAG Chatbot",
+    page_icon="🤖",
+    layout="centered",
+)
+
+st.title("🤖 BobiHealth RAG Chatbot")
+
+# Sidebar — PDF upload + index rebuild ---------------------------------------
+with st.sidebar:
+    st.header("📄 Document Index")
+    uploaded_pdfs = st.file_uploader(
+        "Upload PDF(s) to index",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help="Multiple selection allowed. They will *not* be saved permanently on Streamlit Cloud;\n         for production put your PDFs in storage and load from there.",
+    )
+
+    build_clicked = st.button("🔄 Build / Update Index", type="primary")
+    clear_clicked = st.button("🗑️ Clear Conversation", type="secondary")
+
+# -----------------------------------------------------------------------------
+# 4. Build / reload FAISS + chain when needed
+# -----------------------------------------------------------------------------
+
+if build_clicked:
+    if not uploaded_pdfs:
+        st.error("Please upload at least one PDF before building the index.")
+    else:
+        with st.spinner("Building index (this might take a minute)…"):
+            tmp_paths = [_write_uploaded_file(f) for f in uploaded_pdfs]
+            rag_chain, vectordb = _build_index(tmp_paths)
+            st.session_state["rag_chain"] = rag_chain
+            st.session_state["vectordb"] = vectordb
+        st.success("Index ready! Start chatting in the main panel →")
+
+# If index already saved locally & not yet in session, load it ----------------
+if "rag_chain" not in st.session_state and Path("faiss_index").exists():
+    with st.spinner("Loading existing index…"):
+        embeddings = AzureOpenAIEmbeddings(
+            azure_endpoint=AZURE_ENDPOINT,
+            api_key=AZURE_API_KEY,
+            model=aEMBED_MODEL,
+            chunk_size=2048,
+        )
+        vectordb = FAISS.load_local("faiss_index", embeddings)
+        retriever = vectordb.as_retriever(search_kwargs={"k": 4})
+        # reuse helper to build chain without rebuilding embeddings
+        llm = AzureChatOpenAI(
+            azure_endpoint=AZURE_ENDPOINT,
+            api_key=AZURE_API_KEY,
+            openai_api_version=API_VERSION,
+            azure_deployment=CHAT_DEPLOYMENT,
+            temperature=0,
+            max_tokens=4096,
+        )
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            input_key="question",
+            output_key="answer",
+            return_messages=True,
+        )
+        prompt_template = (
+            "You are a helpful assistant for BobiHealth.\n\n"
+            "Use the following context to answer the user's question.\n"
+            "If you don't know the answer, say you don't know—don't fabricate.\n"
+            "Response should not be in more than 30‑50 words.\n\n"
+            "{context}\n\n"
+            "Chat History:\n{chat_history}\n\n"
+            "User question: {question}\n"
+            "Helpful answer:"
+        )
+        prompt = PromptTemplate(
+            input_variables=["context", "chat_history", "question"],
+            template=prompt_template,
+        )
+        rag_chain = ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            memory=memory,
+            combine_docs_chain_kwargs={"prompt": prompt},
+            return_source_documents=True,
+            output_key="answer",
+        )
+        st.session_state["rag_chain"] = rag_chain
+        st.session_state["vectordb"] = vectordb
+
+# Clear conversation ---------------------------------------------------------
+if clear_clicked:
+    for key in ("messages", "rag_chain"):
+        if key in st.session_state:
+            del st.session_state[key]
+    st.experimental_rerun()
+
+# -----------------------------------------------------------------------------
+# 5. Chat UI
+# -----------------------------------------------------------------------------
+
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []  # list of {role: str, content: str}
+
+for msg in st.session_state["messages"]:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+user_prompt = st.chat_input("Ask something about the indexed documents…")
+
+if user_prompt:
+    if "rag_chain" not in st.session_state:
+        st.warning("Please build / load the index first from the sidebar.")
+    else:
+        # Echo user message ----------------------------------------------------
+        st.session_state["messages"].append({"role": "user", "content": user_prompt})
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+
+        # Query RAG chain ------------------------------------------------------
+        with st.spinner("Thinking…"):
+            result = st.session_state["rag_chain"].invoke({"question": user_prompt})
+            answer = textwrap.fill(result["answer"], width=90)
+
+        # Display assistant response -----------------------------------------
+        with st.chat_message("assistant"):
+            st.markdown(answer)
+            with st.expander("Sources"):
+                for doc in result["source_documents"]:
+                    src = os.path.basename(doc.metadata.get("source", "unknown"))
+                    page = doc.metadata.get("page", "?")
+                    snippet = doc.page_content[:160].replace("\n", " ")
+                    st.markdown(f"**{src}** (p.{page}) — {snippet}…")
+
+        st.session_state["messages"].append({"role": "assistant", "content": answer})
