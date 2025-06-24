@@ -6,3 +6,4 @@ openai>=1.27.0
 langchain
 langchain-openai
 langchain-community
+cryptography>=3.1
