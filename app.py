@@ -116,6 +116,10 @@ st.title("🤖 BobiHealth RAG Chatbot")
 # Sidebar – PDF upload / index controls
 with st.sidebar:
     st.header("📄 Document Index")
+    api_key_input = st.text_input("🔑 OpenAI / Azure API key", type="password",
+                                  placeholder="sk-…  or  <azure-key>")
+    if api_key_input:
+        AZURE_API_KEY = api_key_input.strip()
     uploaded_pdfs = st.file_uploader(
         "Upload PDF(s) to index",
         type=["pdf"],
