@@ -111,10 +111,14 @@ def _build_index(pdf_paths: List[Path]):
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BobiHealth RAG Chatbot",
                    page_icon="bobihealth_logo.jfif", layout="centered")
+with open("icon.png", "rb") as image_file:
+    encoded = base64.b64encode(image_file.read()).decode()
+
+# HTML layout
 st.markdown(
-    """
+    f"""
     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
-        <img src="icon.png" style="height:48px;">
+        <img src="data:image/png;base64,{encoded}" style="height:48px;">
         <h1 style="margin: 0; font-size: 2.2rem;">RAG Chatbot</h1>
     </div>
     """,
