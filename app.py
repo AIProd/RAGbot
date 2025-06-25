@@ -10,6 +10,7 @@
 #    API_VERSION    = "2024-12-01-preview"
 # ──────────────────────────────────────────────────────────────────────────────
 import os
+import base64
 import tempfile
 import textwrap
 from pathlib import Path
