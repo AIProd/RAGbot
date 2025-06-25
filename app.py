@@ -110,7 +110,7 @@ def _build_index(pdf_paths: List[Path]):
 # 3.  Streamlit layout
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BobiHealth RAG Chatbot",
-                   page_icon="🤖", layout="centered")
+                   page_icon="icon.png", layout="centered")
 st.title("🤖 BobiHealth RAG Chatbot")
 
 # Sidebar – PDF upload / index controls
