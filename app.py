@@ -115,7 +115,7 @@ col1, col2 = st.columns([1, 5])
 with col1:
     st.image("icon.png", width=150)  
 with col2:
-    st.markdown(" RAG Chatbot")
+    st.markdown("## RAG Chatbot")
 
 # Sidebar – PDF upload / index controls
 with st.sidebar:
