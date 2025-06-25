@@ -114,7 +114,7 @@ st.set_page_config(page_title="BobiHealth RAG Chatbot",
 st.markdown(
     """
     <div style="display: flex; align-items: center;">
-        <img src="icon.png" style="height:40px; margin-right:10px;">
+        <img src="icon.png">
         <h1 style="margin: 0;">RAG Chatbot</h1>
     </div>
     """,
