@@ -111,8 +111,11 @@ def _build_index(pdf_paths: List[Path]):
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BobiHealth RAG Chatbot",
                    page_icon="bobihealth_logo.jfif", layout="centered")
-st.image("icon.png", width=150) 
-st.title("BobiHealth RAG Chatbot")
+col1, col2 = st.columns([1, 5])
+with col1:
+    st.image("icon.png", width=150)  
+with col2:
+    st.markdown(" RAG Chatbot")
 
 # Sidebar – PDF upload / index controls
 with st.sidebar:
