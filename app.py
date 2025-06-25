@@ -111,7 +111,7 @@ def _build_index(pdf_paths: List[Path]):
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="BobiHealth RAG Chatbot",
                    page_icon="bobihealth_logo.jfif", layout="centered")
-col1, col2 = st.columns([1, 5])
+col1, col2 = st.columns([1, 2])
 with col1:
     st.image("icon.png", width=150)  
 with col2:
