@@ -239,12 +239,12 @@ if prompt:
         # Show assistant reply
         with st.chat_message("assistant"):
             st.markdown(answer)
-            # if result["source_documents"]:
-            #     with st.expander("Sources"):
-            #         for doc in result["source_documents"]:
-            #             src  = os.path.basename(doc.metadata.get("source", "unknown"))
-            #             page = doc.metadata.get("page", "?")
-            #             snip = doc.page_content[:160].replace("\n", " ")
-            #             st.markdown(f"**{src}** (p.{page}) — {snip}…")
+            if result["source_documents"]:
+                with st.expander("Sources"):
+                    for doc in result["source_documents"]:
+                        src  = os.path.basename(doc.metadata.get("source", "unknown"))
+                        page = doc.metadata.get("page", "?")
+                        snip = doc.page_content[:160].replace("\n", " ")
+                        st.markdown(f"**{src}** (p.{page}) — {snip}…")
 
         st.session_state["messages"].append({"role": "assistant", "content": answer})
